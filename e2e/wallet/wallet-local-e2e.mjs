@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -71,7 +71,11 @@ async function fixture(server, configDir) {
   await server.fundAddress(wallet.publicKey(), friendbotUrl);
 
   const base = ["--source", "admin", "--network", network];
-  const deploy = (name) => cli("contract", "deploy", "--wasm", wasm(name), ...base);
+  const deploy = (name) => {
+    const path = wasm(name);
+    console.log(`Deploying ${name} (${statSync(path).size} WASM bytes)`);
+    return cli("contract", "deploy", "--wasm", path, ...base);
+  };
   const access = deploy("access_control");
   const core = deploy("predifi_contract");
   const token = cli("contract", "id", "asset", "--asset", "native", "--network", network);
@@ -165,6 +169,7 @@ test("local Soroban wallet signing flow", async (t) => {
     command("docker", ["compose", "up", "-d", "stellar"]);
     const server = new rpc.Server(rpcUrl, { allowHttp: true });
     await ready(server);
+    console.log(`Local Soroban protocol ${(await server.getLatestLedger()).protocolVersion}`);
     const { core, poolId, wallet } = await fixture(server, configDir);
     let submissions = 0;
     const submit = async (signed) => {
