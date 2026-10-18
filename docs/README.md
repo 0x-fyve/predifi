@@ -19,6 +19,7 @@ This directory contains comprehensive documentation for the PrediFi prediction m
 | **[troubleshooting.md](./troubleshooting.md)** | Common issues and solutions | Current |
 | **[prediction-lifecycle.md](./prediction-lifecycle.md)** | Prediction market lifecycle documentation | Current |
 | **[oracles.md](./oracles.md)** | Oracle integration documentation | Current |
+| **[resolution-challenge-window.md](./resolution-challenge-window.md)** | Post-resolution challenge window, bonds and state diagram | Current |
 | **[whitelist-events.md](./whitelist-events.md)** | Token whitelist events documentation | Current |
 | **[rate-limiting.md](./rate-limiting.md)** | Rate limiting configuration and behavior | Current |
 | **[glossary.md](./glossary.md)** | Terminology and definitions | Current |
@@ -165,6 +166,7 @@ docs/                                  # Documentation directory
 ├── troubleshooting.md                 # Common issues and solutions
 ├── prediction-lifecycle.md            # Prediction market lifecycle
 ├── oracles.md                         # Oracle integration
+├── resolution-challenge-window.md     # Resolution challenge window
 ├── whitelist-events.md                # Token whitelist events
 ├── rate-limiting.md                   # Rate limiting configuration
 ├── glossary.md                        # Terminology
