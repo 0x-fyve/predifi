@@ -58,5 +58,5 @@ jobs:
           echo "## Soroban wallet E2E" >> "$GITHUB_STEP_SUMMARY"
           echo "Result: ${{ steps.e2e.outcome }}" >> "$GITHUB_STEP_SUMMARY"
           echo "Network: private Quickstart local mode; see the test step for scenario results and the confirmed transaction hash." >> "$GITHUB_STEP_SUMMARY"
-          docker compose ps stellar || true
-          docker compose stop stellar || true
+          docker compose -f docker-compose.yml -f e2e/wallet/compose.yml ps stellar || true
+          docker compose -f docker-compose.yml -f e2e/wallet/compose.yml down -v || true

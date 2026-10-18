@@ -1,10 +1,17 @@
 # Local Soroban wallet E2E
 
 This test runs against a private Stellar Quickstart ledger in `--local` mode.
-It uses the repository's `stellar` Docker Compose service, RPC at
+It uses the repository's `stellar` Docker Compose service with an E2E-only
+override that gives it a separate project and volume. RPC is at
 `http://localhost:8000/rpc`, local Friendbot at
 `http://localhost:8000/friendbot`, and the local passphrase
 `Standalone Network ; February 2017`. It never uses public testnet.
+
+The override sets Quickstart's `--limits unlimited` for this private fixture.
+The current PrediFi core contract builds to about 204,000 WASM bytes, above
+the documented 128 KiB public-network contract limit. This local E2E checks
+wallet flow behavior; it does not prove the current contract can be deployed
+under public-network resource limits.
 
 ## Run from a clean checkout
 
@@ -18,15 +25,16 @@ npm ci --prefix e2e/wallet --ignore-scripts --no-audit
 npm --prefix e2e/wallet run test:local
 ```
 
-The test command starts only the existing `stellar` service, waits for RPC
+The test command starts only the isolated `stellar` service, waits for RPC
 health, and verifies the local network passphrase. It builds the two project
 contracts, deploys them with Stellar CLI, deploys the native asset contract if
 needed, initializes access control and PrediFi, whitelists XLM, and creates a
 fresh two-outcome pool. It generates a temporary admin CLI identity and an
 in-memory prediction wallet, then funds both through **local** Friendbot.
 The admin configuration is deleted after the test. No private key is committed
-or printed. Repeated runs create fresh accounts and contracts; the Compose
-volume can remain in place.
+or printed. Repeated runs create fresh accounts and contracts; the E2E Compose
+volume can remain in place. Port 8000 must be free, so stop any other local
+Stellar service before starting the test.
 
 The scripted flow checks:
 

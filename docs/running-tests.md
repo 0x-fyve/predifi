@@ -29,7 +29,7 @@ wasm32v1-none`), and Docker with Compose. From a clean checkout, run:
 npm --prefix e2e/wallet run test:local
 ```
 
-The command starts only the existing `stellar` Compose service and waits up to
+The command starts only an isolated `stellar` Compose service and waits up to
 four minutes for its RPC health check. It builds the current access-control and
 PrediFi WASM, deploys fresh instances and the native asset contract, initializes
 the contracts, whitelists the native asset, and creates a two-outcome pool. The
@@ -49,7 +49,7 @@ polling have explicit deadlines. A dedicated GitHub Actions workflow runs this
 same command on a hosted Ubuntu runner, so Windows users without a Docker
 engine can still obtain on-ledger proof. See
 [Local Soroban wallet E2E](wallet-local-e2e.md) for the fork workflow steps,
-confirmation-timeout case, diagnostics, and Freighter UI scope.
+confirmation-timeout case, local-only network limits, diagnostics, and Freighter UI scope.
 
 ---
 

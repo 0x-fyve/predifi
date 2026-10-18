@@ -166,7 +166,7 @@ test("local Soroban wallet signing flow", async (t) => {
     } catch {
       throw new Error("Stellar CLI is unavailable. Install version 28.1.0 before running the local wallet E2E.");
     }
-    command("docker", ["compose", "up", "-d", "stellar"]);
+    command("docker", ["compose", "-f", "docker-compose.yml", "-f", "e2e/wallet/compose.yml", "up", "-d", "stellar"]);
     const server = new rpc.Server(rpcUrl, { allowHttp: true });
     await ready(server);
     console.log(`Local Soroban protocol ${(await server.getLatestLedger()).protocolVersion}`);
