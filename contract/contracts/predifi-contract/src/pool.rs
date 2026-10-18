@@ -13,6 +13,14 @@ use crate::{
     CANCELATION_DELAY, DEFAULT_MIN_POOL_DURATION, EMERGENCY_CANCEL_MULTISIG_THRESHOLD,
     INITIAL_LIQUIDITY_SAFETY_MARGIN_BPS, MAX_AGGREGATE_STAKE_PER_POOL, MAX_INITIAL_LIQUIDITY,
     MAX_OUTCOMES_PER_POOL, MAX_POOL_DURATION, UNRESOLVED_OUTCOME,
+    Config, DataKey, FeeSchedule, FeeScheduleSnapshotEvent, InitialLiquidityProvidedEvent,
+    MarketState, MaxTotalStakeIncreasedEvent, Pool, PoolCanceledEvent, PoolConfig,
+    PoolCreatedEvent, PoolDescriptionUpdatedEvent, PoolDisputedEvent, PoolReadyForResolutionEvent,
+    PoolResolvedDiagEvent, PoolResolvedEvent, PoolStats, PredifiContract, PredifiContractArgs,
+    PredifiContractClient, PredifiError, ResolutionConflictEvent, ResolutionVoteCastEvent,
+    StakeLimitsUpdatedEvent, StakingClosedEvent, CANCELATION_DELAY, DEFAULT_MIN_POOL_DURATION,
+    EMERGENCY_CANCEL_MULTISIG_THRESHOLD, INITIAL_LIQUIDITY_SAFETY_MARGIN_BPS,
+    MAX_INITIAL_LIQUIDITY, MAX_OPTIONS_COUNT, MAX_POOL_DURATION, UNRESOLVED_OUTCOME,
 };
 
 #[contractimpl]
@@ -501,6 +509,19 @@ impl PredifiContract {
         env.storage().persistent().set(&pool_key, &pool);
         Self::bump_ttl(&env, &pool_key);
 
+        // Snapshot the fee schedule so later treasury changes cannot alter
+        // this pool's economics at settlement.
+        let fee_schedule = FeeSchedule {
+            version: Self::current_fee_schedule_version(&env),
+            base_fee_bps: pool.fee_bps,
+            tiers: Self::get_fee_tiers(env.clone()),
+        };
+        let fee_schedule_key = DataKey::PoolFeeSchedule(pool_id);
+        env.storage()
+            .persistent()
+            .set(&fee_schedule_key, &fee_schedule);
+        Self::bump_ttl(&env, &fee_schedule_key);
+
         // Initialize optimized batch storage with zeros to avoid expensive fallback reads
         let initial_stakes = gas_opt::alloc_zero_stakes(&env, options_count);
         let stakes_key = DataKey::OutStakes(pool_id);
@@ -553,6 +574,14 @@ impl PredifiContract {
             required_resolutions: config.required_resolutions,
             max_total_stake: config.max_total_stake,
             outcome_descriptions: config.outcome_descriptions,
+        }
+        .publish(&env);
+
+        FeeScheduleSnapshotEvent {
+            pool_id,
+            version: fee_schedule.version,
+            base_fee_bps: fee_schedule.base_fee_bps,
+            tiers_count: fee_schedule.tiers.len(),
         }
         .publish(&env);
 
@@ -778,10 +807,13 @@ impl PredifiContract {
     ///    - `pool.state` is set to `MarketState::Resolved`.
     ///    - `pool.outcome` is recorded.
     ///    - A dynamic protocol fee (`pool.fee_bps`) is calculated via
-    ///      [`Self::calculate_dynamic_fee`].
+    ///      [`Self::calculate_dynamic_fee`] from the pool's creation-time
+    ///      [`FeeSchedule`] snapshot.
     ///    - `pool.resolution_timestamp` is stamped with the current ledger time.
     ///    - The pool is removed from the global active index.
     ///    - [`PoolResolvedEvent`] and [`PoolResolvedDiagEvent`] are published.
+    ///    - If a challenge window is configured, payouts stay blocked until the
+    ///      resolution is final (see `challenge_resolution` / `finalize_resolution`).
     ///
     /// # Oracle and price-feed relationship
     ///
@@ -995,7 +1027,7 @@ impl PredifiContract {
         if new_outcome_votes >= pool.required_resolutions {
             pool.state = MarketState::Resolved;
             pool.outcome = outcome;
-            pool.fee_bps = Self::calculate_dynamic_fee(&env, &pool);
+            pool.fee_bps = Self::calculate_dynamic_fee(&env, pool_id, &pool);
             pool.resolution_timestamp = Some(env.ledger().timestamp()); // Record resolution time
 
             env.storage().persistent().set(&pool_key, &pool);
@@ -1003,6 +1035,7 @@ impl PredifiContract {
             // Remove from global active index now that the pool is resolved.
             Self::remove_from_active_index(&env, pool_id);
             Self::bump_ttl(&env, &pool_key);
+            Self::open_challenge_window(&env, pool_id, outcome);
 
             // Retrieve winning-outcome stake for the diagnostic event efficiently
             let winning_stake = Self::get_outcome_stake(env.clone(), pool_id, outcome);
@@ -1410,6 +1443,17 @@ impl PredifiContract {
             .expect("Pool not found");
         Self::extend_persistent(&env, &pool_key);
         pool
+    }
+
+    /// Returns the fee schedule snapshotted when the pool was created.
+    ///
+    /// `None` for legacy pools created before snapshots existed (version
+    /// [`crate::LEGACY_FEE_SCHEDULE_VERSION`]); those settle against the live
+    /// schedule at resolution.
+    pub fn get_pool_fee_schedule(env: Env, pool_id: u64) -> Option<FeeSchedule> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::PoolFeeSchedule(pool_id))
     }
 
     /// Returns the configuration fields of a pool as a `PoolConfig` struct.

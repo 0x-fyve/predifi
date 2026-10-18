@@ -580,6 +580,14 @@ impl PredifiContract {
                 return Err(PredifiError::PoolNotResolved);
             }
 
+            // Challenge-window gate, checked before `Claimed` is written so a
+            // blocked claim (e.g. inside `batch_claim_winnings`) stays claimable.
+            let final_since = if pool.state == MarketState::Resolved {
+                Self::resolution_final_since(env, pool_id)?
+            } else {
+                None
+            };
+
             let claimed_key = DataKey::Claimed(user.clone(), pool_id);
             if env.storage().persistent().has(&claimed_key) {
                 SuspiciousDoubleClaimEvent {
@@ -641,8 +649,9 @@ impl PredifiContract {
                 return Err(PredifiError::PoolNotResolved);
             }
 
-            // Check claim window expiration if resolution timestamp exists
-            if let Some(resolution_timestamp) = pool.resolution_timestamp {
+            // Check claim window expiration. The window opens when the
+            // resolution became final (after any challenge window).
+            if let Some(resolution_timestamp) = final_since.or(pool.resolution_timestamp) {
                 let config = Self::get_config(env);
                 let claim_deadline = resolution_timestamp
                     .checked_add(config.claim_window_seconds)

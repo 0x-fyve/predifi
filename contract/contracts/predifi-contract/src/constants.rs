@@ -478,6 +478,33 @@ pub const CONTRACT_VERSION: u32 = 1;
 /// **Used for:** Calculating `PendingFeeChange.effective_at` when queuing fee changes.
 pub const FEE_CHANGE_TIMELOCK_SECONDS: u64 = 86_400;
 
+/// Fee schedule version reported for legacy pools created before per-pool fee
+/// snapshots existed. Such pools have no stored `FeeSchedule` and settle against
+/// the live schedule at resolution, exactly as they did before the upgrade.
+pub const LEGACY_FEE_SCHEDULE_VERSION: u32 = 0;
+
+/// Number of decimals in the canonical fixed-point price representation.
+///
+/// Every stored feed price, confidence and `PriceCondition.target_price` is an
+/// integer number of `10^-PRICE_DECIMALS` units (i.e. exponent `-8`, the
+/// common Pyth USD exponent). `1.00 USD` is stored as `100_000_000`.
+pub const PRICE_DECIMALS: u32 = 8;
+
+/// Smallest provider exponent accepted by `update_price_feed_with_expo`.
+pub const MIN_PRICE_EXPONENT: i32 = -18;
+
+/// Largest provider exponent accepted by `update_price_feed_with_expo`.
+pub const MAX_PRICE_EXPONENT: i32 = 18;
+
+/// Maximum resolution challenge window: 7 days in seconds.
+///
+/// Bounds how long payouts can be held back after resolution while
+/// participants may still dispute the result.
+pub const MAX_CHALLENGE_WINDOW: u64 = 604_800;
+
+/// Maximum byte length of a challenge `evidence_uri`.
+pub const MAX_EVIDENCE_URI_LEN: u32 = 512;
+
 #[cfg(test)]
 #[allow(clippy::assertions_on_constants)]
 mod tests {
