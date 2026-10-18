@@ -4,6 +4,7 @@ members = [
   "contracts/predifi-errors",
   "contracts/access-control",
   "contracts/predifi-contract",
+  "contracts/predifi-reference-model",
 ]
 
 # ── Shared workspace dependencies ──────────────────────────────────────────────
