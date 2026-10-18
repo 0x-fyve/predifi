@@ -38,7 +38,7 @@ jobs:
           cache-dependency-path: e2e/wallet/package-lock.json
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: wasm32v1-none
+          targets: wasm32-unknown-unknown
       - uses: stellar/stellar-cli@v28.1.0
       - name: Check local tooling
         run: |

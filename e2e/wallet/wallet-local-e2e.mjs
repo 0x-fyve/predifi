@@ -55,17 +55,15 @@ async function ready(server) {
 }
 
 function wasm(name) {
-  for (const target of ["wasm32v1-none", "wasm32-unknown-unknown"]) {
-    const path = join(root, "contract", "target", target, "release", `${name}.wasm`);
-    if (existsSync(path)) return path;
-  }
-  throw new Error(`Built ${name}.wasm was not found under contract/target`);
+  const path = join(root, "contract", "target", "wasm32-unknown-unknown", "release", `${name}.wasm`);
+  if (existsSync(path)) return path;
+  throw new Error(`Built ${name}.wasm was not found at ${path}`);
 }
 
 async function fixture(server, configDir) {
   const cli = (...args) => command("stellar", ["--config-dir", configDir, ...args]);
   cli("network", "add", network, "--rpc-url", rpcUrl, "--network-passphrase", localPassphrase);
-  command("stellar", ["contract", "build"], join(root, "contract"));
+  command("cargo", ["build", "--workspace", "--target", "wasm32-unknown-unknown", "--release"], join(root, "contract"));
   command("stellar", ["--config-dir", configDir, "keys", "generate", "admin", "--as-secret"], root, true);
   const admin = cli("keys", "address", "admin");
   await server.fundAddress(admin, friendbotUrl);

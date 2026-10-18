@@ -22,8 +22,8 @@ This document outlines the commands and requirements for running test suites acr
 
 Install Node.js 22 and the wallet test's dependencies with
 `npm ci --prefix e2e/wallet --ignore-scripts --no-audit`. Install Stellar CLI 28.1.0, Rust with the
-`wasm32v1-none` target (`rustup target add
-wasm32v1-none`), and Docker with Compose. From a clean checkout, run:
+`wasm32-unknown-unknown` target (`rustup target add
+wasm32-unknown-unknown`), and Docker with Compose. From a clean checkout, run:
 
 ```bash
 npm --prefix e2e/wallet run test:local
