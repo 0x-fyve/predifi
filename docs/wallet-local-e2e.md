@@ -9,7 +9,7 @@ It uses the repository's `stellar` Docker Compose service, RPC at
 ## Run from a clean checkout
 
 On Linux or macOS, install Node.js 22, Docker Engine with Compose v2, Rust
-with the `wasm32-unknown-unknown` target, and Stellar CLI 28.1.0. Docker must be
+with the `wasm32v1-none` target, and Stellar CLI 28.1.0. Docker must be
 running and port 8000 must be free. The dedicated GitHub Actions job installs
 these tools on an Ubuntu runner. Then run from the repository root:
 
