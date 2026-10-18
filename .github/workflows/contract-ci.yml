@@ -114,6 +114,35 @@ jobs:
       - name: cargo test
         run: cargo test --workspace
 
+  test-fuzz:
+    name: cargo test (fuzz, bounded)
+    runs-on: ubuntu-latest
+    # Bounded fuzz budget: PROPTEST_CASES=256 at ~8ms/case ≈ 2s per test × 12
+    # tests ≈ 30s wallclock + cargo build ≈ 3-5min. 10-minute ceiling leaves
+    # headroom. If a contract change makes individual cases slow, this job
+    # must NOT silently time out — it should fail visibly.
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: ./contract
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/cache@v4
+        with:
+          enableCrossOsArchive: true
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            contract/target
+          key: ${{ runner.os }}-contract-fuzz-${{ hashFiles('contract/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-contract-fuzz-
+      - name: cargo test (price_feed_proptests, bounded)
+        env:
+          PROPTEST_CASES: "256"
+        run: cargo test -p predifi-contract --lib price_feed_proptests
+
   wasm-build:
     name: WASM build verification
     runs-on: ubuntu-latest

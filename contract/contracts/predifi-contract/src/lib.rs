@@ -17,6 +17,8 @@ mod gas_opt;
 mod oracle;
 #[cfg(test)]
 mod payout_proptests;
+#[cfg(test)]
+mod price_feed_proptests;
 mod payouts;
 mod pool;
 mod prediction;
