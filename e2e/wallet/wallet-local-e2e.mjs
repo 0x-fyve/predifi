@@ -36,12 +36,31 @@ function command(program, args, cwd = root, quiet = false) {
   }
 }
 
-async function ready(server) {
+async function rpcProbe(method) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5_000);
+  try {
+    const response = await fetch(rpcUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method }),
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new Error(`RPC returned HTTP ${response.status}`);
+    const payload = await response.json();
+    if (payload.error) throw new Error(`RPC ${method} failed`);
+    return payload.result;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function ready() {
   const deadline = Date.now() + 240_000;
   while (Date.now() < deadline) {
     try {
-      const health = await server.getHealth();
-      const currentNetwork = await server.getNetwork();
+      const health = await rpcProbe("getHealth");
+      const currentNetwork = await rpcProbe("getNetwork");
       if (health.status === "healthy") {
         assert.equal(currentNetwork.passphrase, localPassphrase, "RPC is not the local network");
         return;
@@ -168,7 +187,7 @@ test("local Soroban wallet signing flow", async (t) => {
     }
     command("docker", ["compose", "-f", "docker-compose.yml", "-f", "e2e/wallet/compose.yml", "up", "-d", "stellar"]);
     const server = new rpc.Server(rpcUrl, { allowHttp: true });
-    await ready(server);
+    await ready();
     console.log(`Local Soroban protocol ${(await server.getLatestLedger()).protocolVersion}`);
     const { core, poolId, wallet } = await fixture(server, configDir);
     let submissions = 0;
