@@ -16,3 +16,8 @@ security-audit-report.md
 
 # Kiro IDE workspace metadata
 .kiro/
+
+# Local wallet E2E dependencies
+e2e/wallet/node_modules/
+config.bat
+node_modules
