@@ -342,4 +342,3 @@ jobs:
             exit 1
           fi
           echo "Tampered artifact correctly REJECTED."
-
