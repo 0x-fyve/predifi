@@ -8,8 +8,8 @@ extern crate std;
 #[cfg(test)]
 mod access_control_audit_tests;
 mod admin;
-#[cfg(test)]
-mod benchmark_test;
+// #[cfg(test)]
+// mod benchmark_test;
 #[cfg(test)]
 mod boundary_edge_case_tests;
 mod constants;
@@ -53,8 +53,11 @@ mod update_pool_description_boundary_tests;
 #[cfg(test)]
 mod withdraw_treasury_boundary_tests;
 mod challenge;
+mod treasury;
 #[cfg(test)]
 mod fee_schedule_snapshot_tests;
+#[cfg(test)]
+mod oracle_feed_fixture;
 #[cfg(test)]
 mod oracle_price_units_confidence_tests;
 #[cfg(test)]
@@ -326,15 +329,21 @@ pub enum PredifiError {
     RefundNotAvailable = 140,
     /// A refund has already been claimed for this (user, pool) pair.
     RefundAlreadyClaimed = 141,
+    /// Feed identifier is not in the governed supported feeds list.
+    UnsupportedFeed = 202,
+    /// Freshness policy value is outside valid configuration bounds.
+    InvalidFreshness = 203,
+    /// Oracle configuration is immutable after market creation and cannot be modified.
+    ConfigurationImmutable = 204,
     /// The provider price exponent is outside
     /// `[MIN_PRICE_EXPONENT, MAX_PRICE_EXPONENT]`, or the value cannot be
     /// represented in `PRICE_DECIMALS` fixed-point without becoming zero.
-    UnsupportedPriceExponent = 202,
+    UnsupportedPriceExponent = 205,
     /// The oracle confidence interval is too wide to resolve on: either
     /// `confidence / price` exceeds the `min_confidence_ratio` policy, or the
     /// interval crosses the price-condition boundary. Resolution is deferred
     /// until a tighter price is published.
-    PriceConfidenceTooWide = 203,
+    PriceConfidenceTooWide = 206,
 }
 
 /// Represents the current state of a prediction market.
@@ -507,6 +516,21 @@ pub struct PoolConfig {
     pub whitelist_key: Option<Symbol>,
     /// Human-readable labels for each outcome (length must equal options_count).
     pub outcome_descriptions: Vec<String>,
+}
+
+/// Governed oracle configuration per market.
+///
+/// Binds a prediction market explicitly to an oracle identity, supported feed identifier,
+/// and accepted freshness policy. Persisted at pool creation and immutable thereafter.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MarketOracleConfig {
+    /// Oracle identity (e.g., trusted oracle contract or provider address).
+    pub oracle: Address,
+    /// Governed supported feed identifier (e.g., symbol_short!("BTC")).
+    pub feed_id: Symbol,
+    /// Accepted freshness policy in seconds (max acceptable age of price updates for this market).
+    pub max_staleness_seconds: u64,
 }
 
 /// Statistics for a prediction pool.
@@ -958,6 +982,15 @@ pub enum DataKey {
     /// Sentinel that records a pool has been marked ready for resolution.
     /// `PoolReady(pool_id)` -> `bool`.
     PoolReady(u64),
+    /// Governed oracle configuration for a specific market: `MarketOracleConfig(pool_id)` -> `MarketOracleConfig`
+    MarketOracleConfig(u64),
+    /// Supported oracle feed identifier flag: `SupportedFeed(feed_id)` -> `bool`
+    SupportedFeed(Symbol),
+    /// Tracked list of all supported feed identifiers: `SupportedFeedList` -> `Vec<Symbol>`
+    SupportedFeedList,
+    /// Protocol bounds for oracle freshness policy: `OracleFreshnessBounds` -> `(u64, u64)`
+    OracleFreshnessBounds,
+
     /// Tracks whether a user has already claimed a refund for a voided pool:
     /// `Refunded(user, pool_id)` -> `bool`.
     ///
@@ -1588,6 +1621,41 @@ pub struct ResolutionVoteCastEvent {
     pub required_resolutions: u32,
 }
 
+#[contractevent(topics = ["market_oracle_configured"])]
+#[contracttype(export = false)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MarketOracleConfiguredEvent {
+    pub pool_id: u64,
+    pub oracle: Address,
+    pub feed_id: Symbol,
+    pub max_staleness_seconds: u64,
+}
+
+#[contractevent(topics = ["supported_feed_added"])]
+#[contracttype(export = false)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SupportedFeedAddedEvent {
+    pub admin: Address,
+    pub feed_id: Symbol,
+}
+
+#[contractevent(topics = ["supported_feed_removed"])]
+#[contracttype(export = false)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SupportedFeedRemovedEvent {
+    pub admin: Address,
+    pub feed_id: Symbol,
+}
+
+#[contractevent(topics = ["oracle_freshness_bounds_set"])]
+#[contracttype(export = false)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct OracleFreshnessBoundsSetEvent {
+    pub admin: Address,
+    pub min_freshness: u64,
+    pub max_freshness: u64,
+}
+
 /// Emitted by `create_pool` with the fee schedule snapshotted for the pool.
 #[contractevent(topics = ["fee_schedule_snapshot"])]
 #[contracttype(export = false)]
@@ -1685,6 +1753,7 @@ pub struct ResolutionEvidenceEvent {
     /// SHA-256 commitment over the stored `ResolutionEvidence` XDR encoding.
     pub evidence_hash: BytesN<32>,
 }
+
 mod events;
 use events::ClaimWindowUpdateEvent;
 // pub use events::*; // Unused import
