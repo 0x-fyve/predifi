@@ -1,4 +1,5 @@
 //! Database connection management and query modules.
+//! Database connection management and query modules.
 //!
 //! This module provides:
 //! - Connection pool creation with retry and exponential backoff
@@ -8,6 +9,8 @@
 //! All public items from sub-modules are re-exported at the `crate::db` level
 //! so existing callers (`crate::db::get_active_pools`, etc.) continue to work
 //! without any changes.
+
+pub mod health;
 
 mod pools;
 mod predictions;
@@ -108,6 +111,8 @@ use tracing::{error, info, warn};
 
 use crate::config::Config;
 
+pub use health::{DependencyHealth, DependencyStatus, ReadinessReport};
+
 // ── Pool creation error ───────────────────────────────────────────────────────
 
 /// Error returned when the database pool cannot be created after all retries.
@@ -176,6 +181,19 @@ pub async fn create_pool(config: &Config) -> Result<PgPool, PoolCreationError> {
         connect,
     )
     .await
+}
+
+// ── Readiness probe ───────────────────────────────────────────────────────────
+
+/// Probe the database for readiness without blocking the caller for longer
+/// than `timeout`. Returns `true` when a trivial query succeeds within budget.
+///
+/// This is intentionally separate from [`create_pool`]: liveness must not
+/// depend on Postgres being reachable, and readiness must never trigger a
+/// restart loop when the database is temporarily down.
+pub async fn check_readiness(pool: &PgPool, timeout: Duration) -> bool {
+    let probe = sqlx::query_scalar::<_, i32>("SELECT 1").fetch_one(pool);
+    matches!(tokio::time::timeout(timeout, probe).await, Ok(Ok(_)))
 }
 
 // ── Backoff maths ─────────────────────────────────────────────────────────────
@@ -344,6 +362,22 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert_eq!(err.attempts, 1, "should fail after only one attempt for PoolClosed");
+    }
+
+    #[tokio::test]
+    async fn readiness_probe_is_bounded_by_timeout() {
+        // A pool pointing at an unroutable address must not hang the probe.
+        let pool = PgPoolOptions::new()
+            .acquire_timeout(Duration::from_millis(50))
+            .connect_lazy("postgres://invalid:invalid@127.0.0.1:1/none")
+            .expect("lazy pool construction should not connect");
+        let start = std::time::Instant::now();
+        let ready = check_readiness(&pool, Duration::from_millis(100)).await;
+        assert!(!ready, "unreachable database must report not ready");
+        assert!(
+            start.elapsed() < Duration::from_secs(2),
+            "readiness probe must return within its timeout budget"
+        );
     }
 
     #[test]
