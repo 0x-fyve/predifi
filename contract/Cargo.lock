@@ -1049,6 +1049,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "predifi-reference-model"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+]
+
+[[package]]
 name = "prettyplease"
 version = "0.2.37"
 source = "registry+https://github.com/rust-lang/crates.io-index"

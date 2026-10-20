@@ -46,6 +46,8 @@ mod stress_test_high_volume;
 #[cfg(test)]
 mod pause_unpause_boundary_tests;
 #[cfg(test)]
+mod recovery_checklist_tests;
+#[cfg(test)]
 mod resource_limit_boundary_tests;
 
 #[cfg(test)]
@@ -230,12 +232,15 @@ pub const MIN_WITHDRAWAL_AMOUNT: i128 = 1;
 #[contracterror]
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum PredifiError {
+    // ── Initialization (2) ──────────────────────────────────────────────────
     AlreadyInitializedOrConfigNotSet = 2,
+    // ── Authorization (10) ──────────────────────────────────────────────────
     Unauthorized = 10,
+    // ── Pool state (20-27) ──────────────────────────────────────────────────
     PoolNotFound = 20,
     PoolNotResolved = 22,
+    /// Pool is in an invalid state for this operation, or has been cancelled.
     InvalidPoolState = 24,
-    /// The outcome value is invalid or out of bounds.
     InvalidOutcome = 25,
     AlreadyClaimed = 60,
     ResolutionDelayNotMet = 81,
@@ -298,9 +303,27 @@ pub enum PredifiError {
     FeeDelayTooShort = 99,
     /// Pool has been flagged as disputed and cannot be modified.
     PoolDisputed = 27,
-    /// target_price must be strictly positive.
-    InvalidTargetPrice = 201,
-    /// `close_staking` called before pool.end_time has passed.
+    // ── Prediction & balance (42-45) ────────────────────────────────────────
+    InvalidAmount = 42,
+    InsufficientBalance = 44,
+    InsufficientStake = 45,
+    // ── Claims (60) ─────────────────────────────────────────────────────────
+    AlreadyClaimed = 60,
+    // ── Time / pause (80-84) ────────────────────────────────────────────────
+    InvalidTimestamp = 80,
+    ResolutionDelayNotMet = 81,
+    StakingStillOpen = 82,
+    /// A time-window
+    PoolDisputed = 27,
+    // ── Prediction & balance (42-45) ────────────────────────────────────────
+    InvalidAmount = 42,
+    InsufficientBalance = 44,
+    InsufficientStake = 45,
+    // ── Claims (60) ─────────────────────────────────────────────────────────
+    AlreadyClaimed = 60,
+    // ── Time / pause (80-84) ────────────────────────────────────────────────
+    InvalidTimestamp = 80,
+    ResolutionDelayNotMet = 81,
     StakingStillOpen = 82,
     /// A time-window constraint (e.g. resolution window, claim window) is
     /// not met for the requested operation.
@@ -329,10 +352,47 @@ pub enum PredifiError {
     /// operations whose pause scope is active. See [`PauseScope`] and
     /// [`PredifiContract::is_operation_paused`] for the operation matrix.
     ContractPaused = 83,
+    TimeConstraintError = 84,
+    // ── Data / validation (90-97) ───────────────────────────────────────────
+    /// Generic invalid input data. Also covers: invalid target price,
+    /// metadata URL too long, outcome description issues, liquidity margin,
+    /// token not whitelisted, and unknown recovery steps.
+    InvalidData = 90,
+    InvalidPagination = 92,
+    InvalidFeeBps = 93,
     InvalidAddressOrToken = 94,
     FeeChangePending = 95,
     NoFeeChangePending = 96,
     TimelockNotExpired = 97,
+    // ── Oracle / price (100-106) ─────────────────────────────────────────────
+    OracleNotInitialized = 100,
+    /// Price data is invalid, stale, missing, or confidence too wide.
+    /// Also covers: price condition not set, unsupported exponent.
+    PriceDataInvalid = 102,
+    MaxTotalStakeExceeded = 104,
+    ResolutionConflict = 105,
+    OracleAlreadyVoted = 106,
+    // ── Stake limits (107-108, 111, 116) ────────────────────────────────────
+    StakeBelowMinimum = 107,
+    StakeAboveMaximum = 108,
+    MaxPredictionsExceeded = 111,
+    MaxAggregateStakeExceeded = 116,
+    // ── Arithmetic (110) ────────────────────────────────────────────────────
+    ArithmeticError = 110,
+    // ── Emergency cancel (134-135) ──────────────────────────────────────────
+    EmergencyCancelPending = 134,
+    EmergencyCancelAlreadyApproved = 135,
+    // ── Rate limiting (190) ─────────────────────────────────────────────────
+    RateLimitOrSuspiciousActivity = 190,
+    // ── Pool configuration (200) ────────────────────────────────────────────
+    RequiredResolutionsExceedOperators = 200,
+    // ── Recovery checklist (210-212) ────────────────────────────────────────
+    /// No recovery checklist has been configured; call `configure_recovery_checklist` before unpausing.
+    RecoveryChecklistNotConfigured = 210,
+    /// Not all required recovery attestations have been provided yet.
+    RecoveryChecklistIncomplete = 211,
+    /// This recovery step has already been attested in the current pause cycle.
+    RecoveryStepAlreadyAttested = 212,
     /// The stored schema version is not supported by this contract binary.
     /// Emitted when `migrate_state` is called on a contract whose on-chain
     /// schema version is ahead of (or otherwise incompatible with) the deployed
@@ -724,6 +784,21 @@ pub struct PendingFeeChange {
     pub proposed_by: Address,
 }
 
+/// A single recovery attestation recorded for one checklist step.
+///
+/// Stored under `DataKey::RecoveryAttestation(step_name)`. Cleared when
+/// `clear_recovery_checklist` is called or when the contract unpauses.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RecoveryAttestation {
+    /// The admin address that attested this step.
+    pub attested_by: Address,
+    /// Ledger timestamp when the attestation was recorded.
+    pub attested_at: u64,
+    /// Free-form notes from the attesting admin.
+    pub notes: Symbol,
+}
+
 /// Aggregated contract metadata for frontend consumption.
 ///
 /// This read model allows clients to fetch protocol configuration and core stats
@@ -1053,6 +1128,12 @@ pub enum DataKey {
     /// Present only while a fee proposal is queued (between a `set_fee_bps` call
     /// and the corresponding `apply_fee_bps` or `cancel_fee_proposal` call).
     PendingFeeBps,
+    /// Recovery checklist configuration set by admin after a pause.
+    /// `RecoveryChecklistConfig` -> `Vec<Symbol>` (list of required step names)
+    RecoveryChecklistConfig,
+    /// Individual attestation for a recovery checklist step.
+    /// `RecoveryAttestation(step_name)` -> `RecoveryAttestation`
+    RecoveryAttestation(Symbol),
     /// Minimum referred volume (in base token units) required before a referrer
     /// is eligible to receive a referral reward on claim.
     /// `ReferralMinVolumeBps` -> `i128`
@@ -1189,6 +1270,56 @@ pub struct UnpauseScopeEvent {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UnpauseEvent {
     pub admin: Address,
+}
+
+/// Emitted when an admin configures the recovery checklist before unpause.
+#[contractevent(topics = ["recovery_checklist_configured"])]
+#[contracttype(export = false)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RecoveryChecklistConfiguredEvent {
+    /// Admin that configured the checklist.
+    pub admin: Address,
+    /// Number of required recovery steps.
+    pub steps_count: u32,
+    /// Ledger timestamp.
+    pub timestamp: u64,
+}
+
+/// Emitted when an admin attests a single recovery checklist step.
+#[contractevent(topics = ["recovery_step_attested"])]
+#[contracttype(export = false)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RecoveryStepAttestedEvent {
+    /// Admin that attested this step.
+    pub admin: Address,
+    /// The name of the step that was attested.
+    pub step: Symbol,
+    /// Ledger timestamp.
+    pub timestamp: u64,
+}
+
+/// Emitted when the recovery checklist is fully satisfied and unpause succeeds.
+#[contractevent(topics = ["recovery_complete"])]
+#[contracttype(export = false)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RecoveryCompleteEvent {
+    /// Admin that triggered the final unpause.
+    pub admin: Address,
+    /// Number of steps that were completed.
+    pub steps_completed: u32,
+    /// Ledger timestamp.
+    pub timestamp: u64,
+}
+
+/// Emitted when the recovery checklist is cleared (e.g. after successful unpause or by admin).
+#[contractevent(topics = ["recovery_checklist_cleared"])]
+#[contracttype(export = false)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RecoveryChecklistClearedEvent {
+    /// Admin that cleared the checklist.
+    pub admin: Address,
+    /// Ledger timestamp.
+    pub timestamp: u64,
 }
 
 #[contractevent(topics = ["fee_update"])]
