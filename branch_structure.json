@@ -1,0 +1,27 @@
+{
+  "default_branch": "main",
+  "branches": [
+    "fix/issue-133-ci-consolidate-duplicate-contract-checks-across",
+    "fix/issue-29-contracts-bound-batch-claim-execution-by",
+    "fix/issue-59-backend-separate-readiness-from-liveness-for",
+    "main",
+    "origin",
+    "security/issue-94-add-secret-scanning-and-credential-leak"
+  ],
+  "parent": {
+    "fix/issue-133-ci-consolidate-duplicate-contract-checks-across": "main",
+    "fix/issue-29-contracts-bound-batch-claim-execution-by": "main",
+    "fix/issue-59-backend-separate-readiness-from-liveness-for": "main",
+    "main": null,
+    "origin": "main",
+    "security/issue-94-add-secret-scanning-and-credential-leak": "main"
+  },
+  "order": [
+    "main",
+    "fix/issue-133-ci-consolidate-duplicate-contract-checks-across",
+    "fix/issue-29-contracts-bound-batch-claim-execution-by",
+    "fix/issue-59-backend-separate-readiness-from-liveness-for",
+    "origin",
+    "security/issue-94-add-secret-scanning-and-credential-leak"
+  ]
+}
