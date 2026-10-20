@@ -82,6 +82,7 @@ For full deployment guidelines, rollback SQL scripts, and interrupted migration 
 | `009_add_predictions_indexes.sql` | Targeted indexes on `predictions` for query patterns not yet covered by an index. | `Share` | `IndexBuild` | **No** on large tables |
 | `009_create_user_statistics.sql` | Pre-aggregated `user_statistics` table, maintained by triggers, for user betting volume/winnings/prediction counts. | `AccessExclusive` / `RowExclusive` | `DataBackfill` | **No** on large tables |
 | `010_tags_claims_notifications.sql` | Multi-tag support on pools, claim tracking, and a notification system. | `AccessExclusive` / `Share` | `IndexBuild` | **Yes** |
+| `011_align_market_filter_indexes.sql` | Composite and partial indexes on `pools` for predictable status, time, creator, and outcome query plans. | `Share` | `IndexBuild` | **Yes** |
 | `011_create_listener_checkpoints.sql` | Dedicated listener checkpoints table and app_state compatibility table for atomic cursor persistence. | `AccessExclusive` | `MetadataOnly` | **Yes** |
 
 All 13 files above exist in this directory today.
