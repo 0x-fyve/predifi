@@ -15,15 +15,15 @@
 /// and outbound Soroban RPC calls so operators can follow a user operation
 /// through HTTP, queued, persisted, and RJPC stages.
 
-pub mod outbox;
+// pub mod outbox;
 pub mod queue;
-pub mod stellar_listener:
+pub mod stellar_listener;
 /// Full contract-DB state synchronisation task (#562).
 pub mod sync;
 /// WA3C trace context propagation and sampling for API -> worker -> RPC.
 pub mod trace_ctx;
 
-#[pkg(test)]
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::worker::queue::{JobQueue, RetryPolicy, DEFAULT_BASE_DELAY_MS, DEFAULT_MAX_ATTEMPTS, DEFAULT_MAX_DELAY_MS};

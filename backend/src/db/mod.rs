@@ -16,7 +16,7 @@ pub mod health;
 mod pools;
 mod predictions;
 mod referrals;
-pub mod outbox;
+// pub mod outbox;
 pub mod metrics;
 
 // ── Re-export every public item from each repository module ──────────────────
@@ -102,17 +102,7 @@ pub use referrals::{
     insert_referrals_bulk_tx,
 };
 
-pub use outbox::{
-    // Types
-    ClaimedNotification,
-    NotificationIntent,
-    NotificationOutboxRow,
-    // Outbox queries
-    claim_notification_intents,
-    enqueue_notification_intent,
-    mark_notification_failed,
-    mark_notification_sent,
-};
+
 
 use std::time::Duration;
 
