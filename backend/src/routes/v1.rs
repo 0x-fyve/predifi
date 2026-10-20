@@ -283,12 +283,8 @@ pub async fn set_log_level(
             })
             .into_response()
         }
-        Err(e) => ApiResponse::<()>::error(
-            StatusCode::BAD_REQUEST,
-            error_codes::INVALID_INPUT,
-            e,
-        )
-        .into_response(),
+        Err(e) => ApiResponse::<()>::error(StatusCode::BAD_REQUEST, error_codes::INVALID_INPUT, e)
+            .into_response(),
     }
 }
 
@@ -1601,7 +1597,7 @@ pub fn router(
     event_bus: crate::ws::EventBus,
 ) -> Router {
     use crate::constants as c;
-    use crate::rate_limit::{with_rate_limit, RateLimitTier};
+    use crate::rate_limit::{with_distributed_rate_limit, with_rate_limit, RateLimitTier};
     use axum::extract::DefaultBodyLimit;
 
     let pool_cache = PoolCache::with_negative_ttl(std::time::Duration::from_secs(
@@ -1627,7 +1623,7 @@ pub fn router(
         .with_state(state.clone());
 
     // Light tier — cheap, stateless, polling-friendly endpoints.
-    let light = with_rate_limit(
+    let light = with_distributed_rate_limit(
         Router::new()
             .route("/", get(index))
             .route("/health", get(health))
@@ -1635,10 +1631,11 @@ pub fn router(
             .route("/prices", get(crate::price_cache::get_prices))
             .with_state(state.clone()),
         RateLimitTier::Light,
+        state.redis.clone(),
     );
 
     // Token tier — refresh rotation and WebSocket handshake (10 req / 60 s).
-    let token = with_rate_limit(
+    let token = with_distributed_rate_limit(
         Router::new()
             .route(
                 "/auth/refresh",
@@ -1648,10 +1645,11 @@ pub fn router(
             .route("/ws", get(crate::ws::ws_handler))
             .with_state(state.clone()),
         RateLimitTier::Token,
+        state.redis.clone(),
     );
 
     // Read tier — public, database-backed read endpoints.
-    let read = with_rate_limit(
+    let read = with_distributed_rate_limit(
         Router::new()
             .route("/pools", get(get_pools))
             .route("/pools/:id", get(get_pool_by_id_handler))
@@ -1667,10 +1665,11 @@ pub fn router(
             .route("/markets/:id/predictions", get(get_market_predictions))
             .with_state(state.clone()),
         RateLimitTier::Read,
+        state.redis.clone(),
     );
 
     // User tier — per-user history and predictions.
-    let user = with_rate_limit(
+    let user = with_distributed_rate_limit(
         Router::new()
             .route("/users/:address/history", get(get_user_history))
             .route("/users/:address/predictions", get(get_user_predictions))
@@ -1693,10 +1692,11 @@ pub fn router(
             )
             .with_state(state.clone()),
         RateLimitTier::User,
+        state.redis.clone(),
     );
 
     // Write tier — indexer ingest (typically internal, strictest limit).
-    let write = with_rate_limit(
+    let write = with_distributed_rate_limit(
         Router::new()
             .route(
                 "/indexer/pool-created",
@@ -1720,6 +1720,7 @@ pub fn router(
             )
             .with_state(state.clone()),
         RateLimitTier::Write,
+        state.redis.clone(),
     );
 
     // Routes without a rate-limit tier of their own. Anything already served by
@@ -2124,7 +2125,10 @@ mod pools_pagination_tests {
     fn limit_within_bounds_is_unchanged() {
         assert_eq!(resolve_pools_page_size(Some(1)), 1);
         assert_eq!(resolve_pools_page_size(Some(50)), 50);
-        assert_eq!(resolve_pools_page_size(Some(POOLS_MAX_PAGE_SIZE)), POOLS_MAX_PAGE_SIZE);
+        assert_eq!(
+            resolve_pools_page_size(Some(POOLS_MAX_PAGE_SIZE)),
+            POOLS_MAX_PAGE_SIZE
+        );
     }
 
     #[test]
@@ -2133,7 +2137,10 @@ mod pools_pagination_tests {
             resolve_pools_page_size(Some(POOLS_MAX_PAGE_SIZE + 1)),
             POOLS_MAX_PAGE_SIZE
         );
-        assert_eq!(resolve_pools_page_size(Some(1_000_000)), POOLS_MAX_PAGE_SIZE);
+        assert_eq!(
+            resolve_pools_page_size(Some(1_000_000)),
+            POOLS_MAX_PAGE_SIZE
+        );
     }
 
     #[test]
