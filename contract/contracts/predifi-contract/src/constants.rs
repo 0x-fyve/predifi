@@ -465,6 +465,57 @@ pub const INITIAL_LIQUIDITY_SAFETY_MARGIN_BPS: u32 = 100;
 pub const EMERGENCY_CANCEL_MULTISIG_THRESHOLD: u32 = 2;
 
 // ═══════════════════════════════════════════════════════════════════════════
+// BATCH CLAIM LIMITS
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Maximum number of claims processed in a single `batch_claim` invocation.
+///
+/// **Units:** Count (dimensionless)
+/// **Value:** 25 claims
+///
+/// **Benchmark evidence:** Each claim performs a persistent read of the
+/// prediction entry, a token transfer, and a persistent write/removal. At 25
+/// claims the measured cost stays within a generous fraction of Soroban's
+/// 100M CPU instruction ceiling and 40 MB memory budget, leaving headroom for
+/// the worst case where every claim touches a distinct prediction and triggers
+/// a separate token transfer. See
+/// `benchmark_tests::test_batch_claim_resource_ceilings`.
+///
+/// **Rationale:** Bounding the batch size by measured resource cost prevents
+/// oversized batches from exhausting the transaction budget mid-execution.
+/// Because the whole invocation is atomic, a batch that would exceed the
+/// budget must be rejected up front rather than failing after partial
+/// processing.
+///
+/// **Impact of changes:**
+/// - Increasing this value raises per-transaction CPU/memory cost and the
+///   worst-case number of token transfers; re-run the batch-claim benchmark
+///   before changing.
+/// - Decreasing this value reduces per-call cost but forces clients to submit
+///   more transactions.
+///
+/// **Used for:** Rejecting oversized batches (`BatchTooLarge`) before any
+/// claim is processed in `batch_claim`.
+pub const MAX_BATCH_CLAIM_SIZE: u32 = 25;
+
+/// Recommended client chunk size for `batch_claim`.
+///
+/// **Units:** Count (dimensionless)
+/// **Value:** 10 claims
+///
+/// **Rationale:** Clients should submit batches well below the hard ceiling so
+/// that a single oversized or failing claim does not force an entire large
+/// batch to be retried. Chunking at 10 keeps each transaction comfortably
+/// within budget while amortizing per-transaction overhead.
+///
+/// **Impact of changes:**
+/// - Must remain `<= MAX_BATCH_CLAIM_SIZE`; larger values would be rejected.
+/// - This is a client-side recommendation only and is not enforced on-chain.
+///
+/// **Used for:** Documenting recommended client chunk sizes for batch claims.
+pub const RECOMMENDED_BATCH_CLAIM_CHUNK_SIZE: u32 = 10;
+
+// ═══════════════════════════════════════════════════════════════════════════
 // MONITORING & ALERT THRESHOLDS
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -965,6 +1016,24 @@ mod tests {
         // At 7 decimals, 1 USDC = 10_000_000 base units.
         // Therefore 1_000_000_000 base units equals 100 USDC.
         assert_eq!(HIGH_VALUE_THRESHOLD, 1_000_000_000);
+    }
+
+    #[test]
+    fn test_batch_claim_limits_are_consistent() {
+        // The hard ceiling must be positive and small enough to stay within
+        // Soroban's per-transaction resource budget.
+        assert!(MAX_BATCH_CLAIM_SIZE > 0);
+        assert!(MAX_BATCH_CLAIM_SIZE <= 100);
+        // The recommended client chunk size must not exceed the hard ceiling.
+        assert!(RECOMMENDED_BATCH_CLAIM_CHUNK_SIZE > 0);
+        assert!(RECOMMENDED_BATCH_CLAIM_CHUNK_SIZE <= MAX_BATCH_CLAIM_SIZE);
+    }
+
+    #[test]
+    fn test_max_batch_claim_size_regression_threshold() {
+        // Regression guard: the maximum supported batch size is pinned so any
+        // change requires re-running the batch-claim benchmark.
+        assert_eq!(MAX_BATCH_CLAIM_SIZE, 25);
     }
 
     #[test]

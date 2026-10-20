@@ -33,6 +33,7 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   WASM_SIZE_THRESHOLD_KB: 200
+  BATCH_CLAIM_BENCH_BUDGET_MS: 30000
 
 jobs:
   check:
@@ -150,6 +151,47 @@ jobs:
         env:
           PROPTEST_CASES: "256"
         run: cargo test -p predifi-contract --lib price_feed_proptests
+
+  # Issue: bound batch-claim execution by measured resource cost.
+  # Runs the batch-claim cost benchmarks with a stable, generous budget so
+  # regressions in per-claim CPU/memory cost fail visibly instead of silently
+  # timing out. The benchmark also asserts the maximum supported batch size
+  # and atomic behavior when any claim fails.
+  batch-claim-bench:
+    name: batch-claim cost benchmarks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: ./contract
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/cache@v4
+        with:
+          enableCrossOsArchive: true
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            contract/target
+          key: ${{ runner.os }}-contract-bench-${{ hashFiles('contract/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-contract-bench-
+      - name: Run batch-claim cost benchmarks
+        env:
+          BATCH_CLAIM_BENCH_BUDGET_MS: ${{ env.BATCH_CLAIM_BENCH_BUDGET_MS }}
+        run: |
+          set -euo pipefail
+          START=$(date +%s%3N)
+          cargo test -p predifi-contract --lib batch_claim_benchmarks \
+            -- --nocapture --test-threads=1
+          END=$(date +%s%3N)
+          ELAPSED=$(( END - START ))
+          echo "batch-claim benchmarks completed in ${ELAPSED} ms (budget ${BATCH_CLAIM_BENCH_BUDGET_MS} ms)"
+          if [[ "$ELAPSED" -gt "$BATCH_CLAIM_BENCH_BUDGET_MS" ]]; then
+            echo "::error::batch-claim benchmarks exceeded ${BATCH_CLAIM_BENCH_BUDGET_MS} ms budget"
+            exit 1
+          fi
 
   wasm-build:
     name: WASM build verification
@@ -295,7 +337,7 @@ jobs:
 
   deploy-testnet:
     name: Deploy to testnet (verified)
-    needs: [check, fmt, clippy, test, wasm-build, wasm-parity]
+    needs: [check, fmt, clippy, test, batch-claim-bench, wasm-build, wasm-parity]
     if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -419,4 +461,3 @@ jobs:
             exit 1
           fi
           echo "Tampered artifact correctly REJECTED."
-

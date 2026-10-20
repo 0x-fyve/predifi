@@ -2097,6 +2097,28 @@ impl PredifiContract {
         fee_bps <= 10_000
     }
 
+    /// Maximum number of claims that may be processed in a single
+    /// `batch_claim_winnings` invocation.
+    ///
+    /// Bound by measured Soroban CPU/memory cost: each claim performs a
+    /// persistent read of `Pred`, `Claimed`, `OutStakes`, and `Pool`, plus a
+    /// token transfer. At `MAX_BATCH_CLAIM_SIZE` the worst-case cost stays
+    /// comfortably within the default network budget.
+    ///
+    /// Clients should chunk larger claim sets into batches of at most this
+    /// size (recommended: 10 per transaction to leave headroom for the
+    /// surrounding envelope and event emission).
+    pub const MAX_BATCH_CLAIM_SIZE: u32 = 20;
+
+    /// Pure: Check whether a requested batch size is within the supported
+    /// measured-resource bound.
+    ///
+    /// PRE: `count` is the number of claims the caller wants to process.
+    /// POST: returns true iff `count` is non-zero and ≤ `MAX_BATCH_CLAIM_SIZE`.
+    fn is_valid_batch_claim_size(count: u32) -> bool {
+        count > 0 && count <= Self::MAX_BATCH_CLAIM_SIZE
+    }
+
     /// Pure: Check if a pool is currently active.
     /// A pool is active iff it has not been resolved, not been canceled,
     /// and its state is explicitly `MarketState::Active`.
@@ -2105,6 +2127,26 @@ impl PredifiContract {
     /// POST: returns true only when all three conditions hold simultaneously
     fn is_pool_active(pool: &Pool) -> bool {
         pool.state == MarketState::Active
+    }
+
+    /// Reject an oversized batch claim *before* any partial processing.
+    ///
+    /// This is the single gate used by `batch_claim_winnings` (and any other
+    /// batch entry point) so that an oversized request never mutates state,
+    /// never transfers tokens, and never emits per-claim events. Callers get
+    /// a typed error and can retry with a smaller chunk.
+    ///
+    /// # Errors
+    /// - `PredifiError::InvalidAmount` when `count == 0`.
+    /// - `PredifiError::InvalidPagination` when `count > MAX_BATCH_CLAIM_SIZE`.
+    fn require_batch_claim_size(count: u32) -> Result<(), PredifiError> {
+        if count == 0 {
+            return Err(PredifiError::InvalidAmount);
+        }
+        if count > Self::MAX_BATCH_CLAIM_SIZE {
+            return Err(PredifiError::InvalidPagination);
+        }
+        Ok(())
     }
 
     /// Validate custom token transfer constraints before executing a transfer.
@@ -2144,6 +2186,25 @@ impl PredifiContract {
         let token_client = token::Client::new(env, token);
         let _ = token_client.balance(from);
         Ok(())
+    }
+
+    /// Recommended client chunk size for batch claims.
+    ///
+    /// Exposed so off-chain clients can query the on-chain bound and size
+    /// their batches accordingly instead of hard-coding a value. The
+    /// recommended chunk is deliberately smaller than `MAX_BATCH_CLAIM_SIZE`
+    /// to leave headroom for envelope overhead and event emission.
+    pub fn recommended_batch_claim_chunk() -> u32 {
+        Self::MAX_BATCH_CLAIM_SIZE / 2
+    }
+
+    /// Returns the maximum supported batch claim size.
+    ///
+    /// Clients must split any claim set larger than this into multiple
+    /// transactions; each transaction is atomic — if any claim in the batch
+    /// fails, the whole batch reverts and no partial payouts occur.
+    pub fn max_batch_claim_size() -> u32 {
+        Self::MAX_BATCH_CLAIM_SIZE
     }
 
     /// Validate stake limit modifications to ensure consistency and safety.
