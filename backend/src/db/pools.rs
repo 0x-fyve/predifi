@@ -282,7 +282,8 @@ pub async fn insert_pool_from_event_tx(
     tx: &mut sqlx::Transaction<'_, Postgres>,
     event: &PoolCreatedEvent,
 ) -> Result<(), sqlx::Error> {
-    sqlx::query(
+    let mut tx = pool.begin().await?;
+    let inserted = sqlx::query(
         r#"
         INSERT INTO pools
             (pool_id, name, category, total_stake, end_time, state, creator, token, created_at)
@@ -299,8 +300,11 @@ pub async fn insert_pool_from_event_tx(
     .execute(&mut **tx)
     .await?;
 
-    record_pool_created_for_creator(&mut **tx, &event.creator).await?;
+    if inserted.rows_affected() > 0 {
+        record_pool_created_for_creator(&mut **tx, &event.creator).await?;
+    }
 
+    tx.commit().await?;
     Ok(())
 }
 
@@ -404,6 +408,16 @@ pub async fn record_pool_created_for_creator<'e, E>(
 ) -> Result<(), sqlx::Error>
 where
     E: Executor<'e, Database = Postgres>,
+{
+    record_pool_created_for_creator_in_executor(pool, creator).await
+}
+
+async fn record_pool_created_for_creator_in_executor<'e, E>(
+    executor: E,
+    creator: &str,
+) -> Result<(), sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
 {
     sqlx::query(
         r#"
