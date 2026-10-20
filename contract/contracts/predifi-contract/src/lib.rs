@@ -18,6 +18,13 @@ mod constants;
 mod gas_opt;
 mod oracle;
 #[cfg(test)]
+#[cfg(test)]
+mod mutation_kill_guards;
+#[cfg(test)]
+mod mutation_kill_payouts;
+#[cfg(test)]
+mod mutation_kill_safe_math;
+#[cfg(test)]
 mod oracle_edge_case_tests;
 #[cfg(test)]
 mod payout_proptests;
@@ -229,7 +236,15 @@ pub const MIN_WITHDRAWAL_AMOUNT: i128 = 1;
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
-#[contracterror]
+// `export = false`: the Stellar XDR spec type `ScSpecUdtErrorEnumV0` caps error
+// enums at 50 cases (`VecM<_, 50>`), and this enum has grown past that limit,
+// which made the spec-generation part of the macro panic with `LengthExceedsMax`
+// and broke compilation of the whole workspace. `export = false` skips only the
+// embedded spec-XDR blob (used by off-chain tooling to pretty-print errors); all
+// runtime error codes, `TryFrom`/`From` conversions and on-chain behaviour are
+// unchanged. If the spec blob is wanted again, split the enum or move to <= 50
+// variants.
+#[contracterror(export = false)]
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum PredifiError {
     // ── Initialization (2) ──────────────────────────────────────────────────
