@@ -10,6 +10,7 @@
 //! so existing callers (`crate::db::get_active_pools`, etc.) continue to work
 //! without any changes.
 
+pub mod checkpoints;
 pub mod health;
 
 mod pools;
@@ -21,6 +22,15 @@ pub mod metrics;
 // ── Re-export every public item from each repository module ──────────────────
 // This keeps the `crate::db::*` call surface identical to the original
 // monolithic file — no changes needed in routes, workers, or other callers.
+
+pub use checkpoints::{
+    load_checkpoint,
+    resolve_startup_checkpoint,
+    save_checkpoint,
+    save_checkpoint_tx,
+    CheckpointStatus,
+    DEFAULT_LISTENER_ID,
+};
 
 pub use pools::{
     // Types
@@ -40,6 +50,7 @@ pub use pools::{
     get_pool_with_odds,
     get_pools_with_filters,
     insert_pool_from_event,
+    insert_pool_from_event_tx,
     // Business logic
     calculate_odds,
     // Creator incentives
@@ -88,6 +99,7 @@ pub use referrals::{
     get_referral_earnings,
     insert_referral_from_event,
     insert_referrals_bulk,
+    insert_referrals_bulk_tx,
 };
 
 pub use outbox::{
