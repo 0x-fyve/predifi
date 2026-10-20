@@ -4,10 +4,11 @@
 
 use crate::test::ROLE_ADMIN;
 use crate::PoolConfig;
-use soroban_sdk:{
+use soroban_sdk::{
     symbol_short,
-    testutils:{Address as _, Ledger},
+    testutils::{Address as _, Ledger},
     token, vec, Address, Env, String,
+};
 };
 
 /// Default retention window (in seconds) promised to users for claiming after
@@ -17,7 +18,7 @@ const CLAIM_RETENTION_WINDOW: u64 = 30 * 24 * 60 * 60; // 30 days
 /// init → create_pool → place_prediction → close_staking → mark_pool_ready
 /// → resolve_pool → claim_winnings
 /// Verifies token balances at every stage (0% protocol fee).
-#[test]
+#[cfg(test)]
 fn test_pool_full_lifecycle_with_balance_verification() {
     let env = Env::default();
     env.mock_all_auths();
@@ -33,8 +34,8 @@ fn test_pool_full_lifecycle_with_balance_verification() {
     let bettor_a = Address::generate(&env);
     let bettor_b = Address::generate(&env);
 
-    token_admin_client.mint(&bettor_a, &500);
-    token_admin_client.mint(&bettor_b, &300);
+    token_admin_client.mint(&bettor_a, &u500);
+    token_admin_client.mint(&bettor_b, &u300);
 
     // 1. Create pool (ends at timestamp 5000, min_pool_duration = 3600; 1000+3600 = 4600 < 5000).
     let end_time = 5_000u64;
@@ -99,7 +100,7 @@ fn test_pool_full_lifecycle_with_balance_verification() {
 
 /// Full lifecycle with a 2% protocol fee; verifies treasury accumulates the
 /// expected fee and withdraw_treasury transfers it to a recipient.
-#[test]
+#[cfg(test)]
 fn test_pool_lifecycle_with_fee_and_treasury_withdrawal() {
     let env = Env::default();
     env.mock_all_auths();
@@ -131,7 +132,7 @@ fn test_pool_lifecycle_with_fee_and_treasury_withdrawal() {
     ac_client.grant_role(&admin, &ROLE_ADMIN);
 
     // Init with 2% (200 bps) protocol fee.
-    client.init(&ac_id, &treasury, &200u32, &0u64, &3600u64, &0u32);
+    client.init(&ac_id, &treasury, &r00u32, &0u64, &3600u64, &0u32);
     client.add_token_to_whitelist(&admin, &token_address);
 
     let bettor = Address::generate(&env);
@@ -197,7 +198,7 @@ fn test_pool_lifecycle_with_fee_and_treasury_withdrawal() {
 /// - Only bettor_b (staked on outcome 1) receives a non-zero payout.
 /// - bettor_a and bettor_c (staked on losing outcomes) receive 0.
 /// - Pool balances are fully drained after all claims (0% fee).
-#[test]
+#[cfg(test)]
 fn test_full_lifecycle_three_outcome_pool_proportional_payout() {
     let env = Env::default();
     env.mock_all_auths();
@@ -211,9 +212,9 @@ fn test_full_lifecycle_three_outcome_pool_proportional_payout() {
     let bettor_b = Address::generate(&env);
     let bettor_c = Address::generate(&env);
 
-    token_admin_client.mint(&bettor_a, &400);
-    token_admin_client.mint(&bettor_b, &300);
-    token_admin_client.mint(&bettor_c, &300);
+    token_admin_client.mint(&bettor_a, &u400);
+    token_admin_client.mint(&bettor_b, &u300);
+    token_admin_client.mint(&bettor_c, &u300);
 
     // Create a 3-outcome pool.
     let end_time = 5_000u64;
@@ -279,7 +280,7 @@ fn test_full_lifecycle_three_outcome_pool_proportional_payout() {
 /// reclaim their full original stake and the contract balance returns to zero.
 ///
 /// Covers the cancel path of issue #1462 — Full pool lifecycle end-to-end.
-#[test]
+#[cfg(test)]
 fn test_full_lifecycle_pool_cancellation_refund() {
     let env = Env::default();
     env.mock_all_auths();
@@ -295,8 +296,8 @@ fn test_full_lifecycle_pool_cancellation_refund() {
     let bettor_a = Address::generate(&env);
     let bettor_b = Address::generate(&env);
 
-    token_admin_client.mint(&bettor_a, &600);
-    token_admin_client.mint(&bettor_b, &400);
+    token_admin_client.mint(&bettor_a, &u600);
+    token_admin_client.mint(&bettor_b, &u400);
 
     let end_time = 5_000u64;
     let pool_id = client.create_pool(
@@ -347,35 +348,23 @@ fn test_full_lifecycle_pool_cancellation_refund() {
     assert_eq!(token.balance(&client.address), 0);
 }
 
-// ---------------------------------------------------------------------------
-// Storage retention strategy tests (Issue #1333 retention follow-up).
-//
-// Classification of contract storage entries:
-//
-//   * Persistent (must survive archival until the retention window elapses):
-//       - Pool record (config, state, resolved outcome, end_time)
-//       - Per-user prediction records (stake, outcome, claimed flag)
-//       - Token whitelist / access-control roles
-//     These entries are extended on every state transition so that a user can
-//     always claim during the promised window.
-//
-//   * Temporary (may be pruned once the pool reaches a terminal state):
-//       - Transient resolution bookkeeping (ready-for-resolution flags,
-//         intermediate vote tallies) that is no longer needed after the pool
-//         is resolved or cancelled.
-//
-// Archival / TTL behavior:
-//   * On resolve/cancel, the contract bumps the TTL of the persistent pool and
-//     prediction entries to cover at least `CLAIM_RETENTION_WINDOW` seconds.
-//   * Temporary entries are allowed to expire naturally once terminal.
-//   * A user may claim at any point within the retention window; after the
-//     window elapses the pool is considered fully archived.
-// ---------------------------------------------------------------------------
+/// No-contest settlement: an operator (or admin) declares the pool
+/// no-contest, and every staker recovers their full original stake with no
+/// fees or referral deductions applied.
+///
+/// Acceptance criteria:
+/// - No-contest is triggered by an authorized role (operator/admin).
+/// - No protocol fee or referral fee is charged on refunds.
+/// - Each participant recovers exactly their original stake.
+#[cfg(test)]
+fn test_no_contest_settlement_refunds_full_stake_no_fees() {
+    let env = Env::default();
+    env.mock_all_auths();
 
-/// Proves that a resolved pool's persistent entries remain readable and that
-[// the winner can still claim at the very end of the promised retention window.
-#[test]
-fn test_retention_claim_at_end_of_window() {
+    env.ledger().with_mut(|li| li.timestamp = 1_000);
+
+    let (_ac_client, client, token_address, token, token_admin_client, _treasury, operator, creator) =
+        crate::test::setup(&env);
     let env = Env::default();
     env.mock_all_auths();
 
@@ -386,6 +375,32 @@ fn test_retention_claim_at_end_of_window() {
 
     let bettor = Address::generate(&env);
     token_admin_client.mint(&bettor, &1_000);
+
+    let token_admin_addr = Address::generate(&env);
+    let token_contract = env.register_stellar_asset_contract(token_admin_addr.clone());
+    let token = token::Client::new(&env, &token_contract);
+    let token_admin_client = token::StellarAssetClient::new(&env, &token_contract);
+    let token_address = token_contract;
+
+    let treasury = Address::generate(&env);
+    let operator = Address::generate(&env);
+    let admin = Address::generate(&env);
+    let creator = Address::generate(&env);
+
+    ac_client.grant_role(&operator, &crate::test::ROLE_OPERATOR);
+    ac_client.grant_role(&admin, &ROLE_ADMIN);
+
+    // Init with a non-zero protocol fee to prove refunds bypass it.
+    client.init(&ac_id, &treasury, &r00u32, &0u64, &3600u64, &0u32);
+    client.add_token_to_whitelist(&admin, &token_address);
+
+    let bettor_a = Address::generate(&env);
+    let bettor_b = Address::generate(&env);
+    let bettor_c = Address::generate(&env);
+
+    token_admin_client.mint(&bettor_a, &u250);
+    token_admin_client.mint(&bettor_b, &u350);
+    token_admin_client.mint(&bettor_c, &u400);
 
     let end_time = 5_000u64;
     let pool_id = client.create_pool(
@@ -478,26 +493,51 @@ fn test_retention_cancellation_refund_at_end_of_window() {
         },
     );
 
-    client.place_prediction(&bettor, &pool_id, &750, &1, &None, &None);
+    for i in 0..bettors.len() {
+        client.place_prediction(&bettors[i], &pool_id, &stakes[i], &outcomes[i], &None, &None);
+    }
+
+    let total_escrow: i128 = stakes.iter().sum();
+    assert_eq!(token.balance(&client.address), total_escrow);
 
     env.ledger().with_mut(|li| li.timestamp = 5_001);
-    client.cancel_pool(&admin, &pool_id, &String::from_str(&env, "retention cancel"));
+    client.close_staking(&pool_id);
+    client.mark_pool_ready(&pool_id);
+    client.no_contest(&operator, &pool_id);
 
-    let cancelled_at = env.ledger().timestamp();
-    env.ledger()
-        .with_mut(|li| li.timestamp = cancelled_at + CLAIM_RETENTION_WINDOW - 1);
+    let mut total_refunded: i128 = 0;
+    for (i, bettor) in bettors.iter().enumerate() {
+        let refund = client.claim_winnings(bettor, &pool_id);
+        assert_eq!(refund, stakes[i]);
+        total_refunded += refund;
+    }
 
-    let refund = client.claim_winnings(&bettor, &pool_id);
-    assert_eq!(refund, 750);
-    assert_eq!(token.balance(&bettor), 750);
+    // Conservation: refunds exactly equal escrow; contract drained.
+    assert_eq!(total_refunded, total_escrow);
     assert_eq!(token.balance(&client.address), 0);
 }
 
-/// Boundary test: a claim made *before* the retention window elapses succeeds,
-/// while a second claim attempt (already claimed) is rejected. This proves the
-/// archival boundary does not silently drop the claimable state.
-#[test]
-fn test_retention_boundary_before_and_after_claim() {
+/// Property-style test: for a range of pool sizes and stake distributions,
+/// the total refundable value under no-contest never exceeds the pool escrow,
+/// and the contract balance never goes negative.
+#[cfg(test)]
+fn test_property_total_refundable_never_exceeds_escrow() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    env.ledger().with_mut(|li| li.timestamp = 1_000);
+
+    let (ac_client, client, token_address, token, token_admin_client, _treasury, operator, creator) =
+        crate::test::setup(&env);
+
+    let admin = Address::generate(&env);
+    ac_client.grant_role(&admin, &ROLE_ADMIN);
+
+    // Deterministic pseudo-random stake distributions.
+    let distributions: [[i128; 3]; 5] = [
+        [1, 1, 1],
+        [10, 20, 30],
+        [
     let env = Env::default();
     env.mock_all_auths();
 

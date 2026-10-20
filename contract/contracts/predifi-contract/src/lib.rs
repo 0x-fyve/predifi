@@ -321,6 +321,11 @@ pub enum PredifiError {
     FeeChangePending = 95,
     NoFeeChangePending = 96,
     TimelockNotExpired = 97,
+    /// The pool is not in a state that permits a refund claim (e.g. it has
+    /// not been canceled/no-contested, or the refund window has closed).
+    RefundNotAvailable = 140,
+    /// A refund has already been claimed for this (user, pool) pair.
+    RefundAlreadyClaimed = 141,
     /// The provider price exponent is outside
     /// `[MIN_PRICE_EXPONENT, MAX_PRICE_EXPONENT]`, or the value cannot be
     /// represented in `PRICE_DECIMALS` fixed-point without becoming zero.
@@ -346,6 +351,9 @@ pub enum MarketState {
     Canceled = 2,
     /// Market has been flagged as disputed by a moderator.
     Disputed = 3,
+    /// Market was voided (no-contest / invalid-oracle) and stakes are
+    /// refundable to every participant. Terminal state.
+    NoContest = 4,
 }
 
 /// Parameters for creating a new prediction pool.
@@ -454,6 +462,13 @@ pub struct Pool {
     /// Unix timestamp when the pool was resolved. None for pools created before this feature.
     /// Used to enforce claim window expiration. Set when pool transitions to MarketState::Resolved.
     pub resolution_timestamp: Option<u64>,
+    /// Unix timestamp when the pool was voided (canceled or no-contest).
+    /// `None` for pools that have not been voided. Used to enforce the
+    /// refund window and to make refund eligibility auditable.
+    pub voided_timestamp: Option<u64>,
+    /// Short machine-readable reason for the void (e.g. "cancel", "nocontest",
+    /// "oracle_invalid"). Empty when the pool has not been voided.
+    pub void_reason: Symbol,
 }
 
 /// Configuration parameters for creating a prediction pool.
@@ -943,6 +958,17 @@ pub enum DataKey {
     /// Sentinel that records a pool has been marked ready for resolution.
     /// `PoolReady(pool_id)` -> `bool`.
     PoolReady(u64),
+    /// Tracks whether a user has already claimed a refund for a voided pool:
+    /// `Refunded(user, pool_id)` -> `bool`.
+    ///
+    /// Write-once sentinel that guarantees a participant cannot be paid twice
+    /// even if they retry `claim_refund` after a successful claim.
+    Refunded(Address, u64),
+    /// Total value refunded so far for a pool: `RefundedTotal(pool_id)` -> `i128`.
+    ///
+    /// Used to enforce the conservation invariant
+    /// `RefundedTotal(pool_id) <= Pool.total_stake` at every claim.
+    RefundedTotal(u64),
 
     // ── Fee schedule snapshots ───────────────────────────────────────────────
     /// Current protocol fee schedule version: `FeeScheduleVersion` -> `u32`.
@@ -977,6 +1003,23 @@ pub struct Prediction {
     pub amount: i128,
     /// The chosen outcome index (0-based). This corresponds to the index in `Pool.outcome_descriptions`.
     pub outcome: u32,
+}
+
+/// Emitted when a pool is voided (canceled or declared no-contest) and its
+/// escrow becomes refundable to all participants.
+///
+/// `reason` is a short machine-readable symbol: `"cancel"`, `"nocontest"`,
+/// or `"oracle_invalid"`. Off-chain indexers use this event to surface the
+/// refund window and to reconcile escrow against `RefundedTotal`.
+#[contractevent(topics = ["pool_voided"])]
+#[contracttype(export = false)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PoolVoidedEvent {
+    pub pool_id: u64,
+    pub caller: Address,
+    pub reason: Symbol,
+    pub total_stake: i128,
+    pub timestamp: u64,
 }
 
 // ── Events ───────────────────────────────────────────────────────────────────
@@ -1751,6 +1794,11 @@ pub struct ContractMetadata {
     pub oracle_initialized: bool,
 }
 
+/// Canonical void reasons used by `void_pool` / `claim_refund`.
+pub const VOID_REASON_CANCEL: Symbol = symbol_short!("cancel");
+pub const VOID_REASON_NOCONTEST: Symbol = symbol_short!("nocontest");
+pub const VOID_REASON_ORACLE: Symbol = symbol_short!("oracleinv");
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 pub trait OracleCallback {
@@ -1766,12 +1814,32 @@ pub trait OracleCallback {
     ) -> Result<(), PredifiError>;
 }
 
+/// Returns `true` when `state` is a terminal voided state whose escrow is
+/// refundable to every participant (canceled or no-contest).
+fn is_voided_state(state: MarketState) -> bool {
+    matches!(state, MarketState::Canceled | MarketState::NoContest)
+}
+
 #[contract]
 pub struct PredifiContract;
 
 #[contractimpl]
 impl PredifiContract {
     // ====== Pure Helper Functions (side-effect free, verifiable) ======
+
+    /// Pure: returns `true` iff `state` is a terminal voided state.
+    ///
+    /// Voided states are `Canceled` and `NoContest`. In both cases every
+    /// participant is entitled to a full refund of their stake, no protocol
+    /// fee or referral cut is applied, and the pool is no longer active.
+    fn is_voided(state: MarketState) -> bool {
+        is_voided_state(state)
+    }
+
+    /// Pure: returns `true` iff the pool's escrow is refundable.
+    fn is_refundable(pool: &Pool) -> bool {
+        Self::is_voided(pool.state)
+    }
 
     /// Validate that a category symbol is in the allowed list.
     /// Returns the category if valid, otherwise falls back to CATEGORY_OTHER.

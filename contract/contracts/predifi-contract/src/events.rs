@@ -69,6 +69,10 @@
 //! | [`TreasuryFeeChangeActivatedEvent`] | `treasury_fee_change_activated` | a proposed treasury fee change is activated |
 //! | [`TreasuryFeeChangeCancelledEvent`] | `treasury_fee_change_cancelled` | a proposed treasury fee change is cancelled |
 //! | [`RefundClaimedEvent`] | `refund_claimed` | a refund is claimed |
+//! | [`NoContestDeclaredEvent`] | `no_contest_declared` | a pool is declared no-contest |
+//! | [`InvalidOracleDeclaredEvent`] | `invalid_oracle_declared` | a pool is declared invalid-oracle |
+//! | [`RefundPolicyAppliedEvent`] | `refund_policy_applied` | a refund policy is applied to a pool |
+//! | [`RefundPoolSettledEvent`] | `refund_pool_settled` | a refund pool is fully settled |
 //! | [`UpgradeEvent`] | `upgrade` | an upgrade is requested |
 //! | [`ContractUpgradedEvent`] | `contract_upgraded` | an upgrade is completed |
 //! | [`OracleInitEvent`] | `oracle_init` | an oracle is configured |
@@ -1833,6 +1837,8 @@ pub struct RefundClaimedEvent {
     /// Refunded stake amount returned to user.
     pub amount: i128,
 }
+
+// ── Refund Settlement Events ─────────────────────────────────────────────────
 
 /// Emitted when a proposal to upgrade contract WASM code is published.
 ///
