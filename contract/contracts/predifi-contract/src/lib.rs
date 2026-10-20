@@ -11,6 +11,8 @@ mod admin;
 // #[cfg(test)]
 // mod benchmark_test;
 #[cfg(test)]
+mod upgrade_migration_tests;
+#[cfg(test)]
 mod boundary_edge_case_tests;
 mod constants;
 mod gas_opt;
