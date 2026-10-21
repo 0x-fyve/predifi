@@ -16,8 +16,9 @@ pub mod health;
 mod pools;
 mod predictions;
 mod referrals;
-// pub mod outbox;
+pub mod outbox;
 pub mod metrics;
+pub mod outbox;
 
 // ── Re-export every public item from each repository module ──────────────────
 // This keeps the `crate::db::*` call surface identical to the original
@@ -102,7 +103,7 @@ pub use referrals::{
     insert_referrals_bulk_tx,
 };
 
-
+pub use outbox::{ClaimedNotification, NotificationIntent};
 
 use std::time::Duration;
 
